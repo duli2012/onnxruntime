@@ -4,34 +4,23 @@
 #pragma once
 
 #include "core/framework/op_kernel.h"
+#include <memory>
 #include <vector>
 
 namespace onnxruntime {
 namespace contrib {
 
-class Ngram : public OpKernel {
+class Ngram final : public OpKernel {
  public:
   explicit Ngram(const OpKernelInfo& info);
-  ~Ngram() = default;
+  ~Ngram();
+  ONNXRUNTIME_DISALLOW_COPY_ASSIGNMENT_AND_MOVE(Ngram);
 
   Status Compute(OpKernelContext* ctx) const override;
 
  private:
-  enum Mode {
-    kNone = 0,
-    kTF = 1,
-    kIDF = 2,
-    kTFIDF = 3
-  };
-
-  int64_t N_;
-  int64_t M_;
-  int64_t S_;
-  bool all_;
-  std::vector<int64_t> ngram_counts_;
-  std::vector<int64_t> ngram_indexes_;
-  std::vector<float> weights_;
-  Mode mode_;
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
 };
 
 }  // namespace contrib
