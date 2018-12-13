@@ -19,6 +19,12 @@ class Ngram final : public OpKernel {
   Status Compute(OpKernelContext* ctx) const override;
 
  private:
+  template <typename T>
+  void ComputeImpl(OpKernelContext* ctx, size_t total_items) const;
+
+  // Apply weighing cirteria and output
+  void OutputResult(OpKernelContext* ctx, const std::vector<uint32_t>& frequences) const;
+
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

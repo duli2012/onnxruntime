@@ -166,7 +166,8 @@ Sample echo operator.)DOC");
           "is the weight of the i-th n-gram in pool. Its length equals to the size of ngram_indexes."
           "By default, weights is an all-one tensor.This attribute is used when mode is \"IDF\" or \"TFIDF\""
           "to scale the associated word counts.",
-          AttributeProto::FLOATS)
+          AttributeProto::FLOATS,
+          OPTIONAL)
       .Attr(
           "mode",
           "The weighting criteria. It can be one of \"TF\" (term frequency),"
