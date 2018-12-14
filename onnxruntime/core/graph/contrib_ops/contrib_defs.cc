@@ -136,13 +136,13 @@ Sample echo operator.)DOC");
           AttributeProto::INT)
       .Attr(
           "pool_strings",
-          "List of strings n-grams learned from the training set. Either this or pool_int64 attributes must be present but not both."
+          "List of strings n-grams learned from the training set. Either this or pool_int64s attributes must be present but not both."
           "It's an 1-D tensor starting with the collections of all 1-grams and ending with the collections of n-grams."
           "The i-th element in pool stores the n-gram that should be mapped to index ngram_indexes[i] in the output vector.",
           AttributeProto::STRINGS,
           OPTIONAL)
       .Attr(
-          "pool_int64",
+          "pool_int64s",
           "List of int64 n-grams learned from the training set. Either this or pool_strings attributes must be present but not both."
           "It's an 1-D tensor starting with the collections of all 1-grams and ending with the collections of n-grams."
           "The i-th element in pool stores the n-gram that should be mapped to index ngram_indexes[i] in the output vector.",

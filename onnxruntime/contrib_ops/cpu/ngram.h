@@ -10,6 +10,11 @@
 namespace onnxruntime {
 namespace contrib {
 
+namespace ngram_details {
+template <class T>
+class NGramItem;
+}
+
 class Ngram final : public OpKernel {
  public:
   explicit Ngram(const OpKernelInfo& info);
@@ -22,7 +27,7 @@ class Ngram final : public OpKernel {
   template <typename T>
   void ComputeImpl(OpKernelContext* ctx, size_t total_items) const;
 
-  // Apply weighing cirteria and output
+  // Apply weighing criteria and output
   void OutputResult(OpKernelContext* ctx, const std::vector<uint32_t>& frequences) const;
 
   struct Impl;
