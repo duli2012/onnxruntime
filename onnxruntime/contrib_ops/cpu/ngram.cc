@@ -193,6 +193,7 @@ struct Ngram::Impl {
   std::vector<std::string> pool_strings_;
   StringPoolSet str_set_;
   IntegerPoolSet int_set_;
+
   MLDataType int32_dt_;
   MLDataType int64_dt_;
   MLDataType string_dt_;
@@ -201,9 +202,6 @@ struct Ngram::Impl {
     int64_dt_ = DataTypeImpl::GetType<int64_t>();
     string_dt_ = DataTypeImpl::GetType<std::string>();
   }
-
-  template <typename T>
-  size_t GetPoolSize() const;
 
   template <typename T>
   auto PoolEnd() const;
@@ -219,21 +217,6 @@ struct Ngram::Impl {
     ++frequencies[output_idx];
   }
 };
-
-template <>
-inline size_t Ngram::Impl::GetPoolSize<int64_t>() const {
-  return int_set_.size();
-}
-
-template <>
-inline size_t Ngram::Impl::GetPoolSize<int32_t>() const {
-  return GetPoolSize<int64_t>();
-}
-
-template <>
-inline size_t Ngram::Impl::GetPoolSize<std::string>() const {
-  return str_set_.size();
-}
 
 template <>
 inline auto Ngram::Impl::PoolEnd<int64_t>() const {
@@ -292,7 +275,8 @@ Ngram::Ngram(const OpKernelInfo& info) : OpKernel(info), impl_(new Impl) {
 
   status = info.GetAttrs(std::string("ngram_counts"), impl_->ngram_counts_);
   ONNXRUNTIME_ENFORCE(status.IsOK() && !impl_->ngram_counts_.empty(), "Non-empty ngram_counts is required");
-  // XXX: Add a verification that ngram_counts match the general item count
+  ONNXRUNTIME_ENFORCE(size_t(impl_->M_) <= impl_->ngram_counts_.size(), "M must be inbounds of ngram_counts");
+  ONNXRUNTIME_ENFORCE(size_t(impl_->N_) <= impl_->ngram_counts_.size(), "N must be inbounds of ngram_counts");
 
   status = info.GetAttrs("ngram_indexes", impl_->ngram_indexes_);
   ONNXRUNTIME_ENFORCE(status.IsOK() && !impl_->ngram_indexes_.empty(), "Non-empty ngram_indexes is required");
@@ -315,6 +299,9 @@ Ngram::Ngram(const OpKernelInfo& info) : OpKernel(info), impl_(new Impl) {
   // Iterator via the pool. Insert 1 item for 1-grams, 2 items for 2-grams, etc.
   const auto total_items = (impl_->pool_strings_.empty()) ? pool_int64s.size() : impl_->pool_strings_.size();
   size_t ngram_id = 0;
+  // Load into dictionary only required Ns
+  const size_t M = impl_->M_;
+  const size_t N = impl_->N_;
   size_t ngram_size = 1;
   for (size_t i = 0; i < impl_->ngram_counts_.size(); ++i) {
     size_t start_idx = impl_->ngram_counts_[i];
@@ -326,24 +313,23 @@ Ngram::Ngram(const OpKernelInfo& info) : OpKernel(info), impl_(new Impl) {
       ONNXRUNTIME_ENFORCE((items % ngram_size == 0),
                           "Number of items must compose whole ", std::to_string(ngram_size), "-grams");
       auto ngrams = items / ngram_size;
-      if (impl_->pool_strings_.empty()) {
-        auto before_insert = impl_->int_set_.size();
-        Emplace(pool_int64s.begin() + start_idx, ngrams, ngram_size, ngram_id, impl_->int_set_);
-        ONNXRUNTIME_ENFORCE((before_insert + ngrams) == impl_->int_set_.size(), "pool_int64s duplicate ", std::to_string(ngram_size), "-grams detected");
+      // Skip loading into hash_set ngrams that are not N or not in the range of [M-N] for all=true;
+      if ((impl_->all_ && (ngram_size >= M && ngram_size <= N)) ||
+          ngram_size == N) {
+        if (impl_->pool_strings_.empty()) {
+          auto before_insert = impl_->int_set_.size();
+          Emplace(pool_int64s.begin() + start_idx, ngrams, ngram_size, ngram_id, impl_->int_set_);
+          ONNXRUNTIME_ENFORCE((before_insert + ngrams) == impl_->int_set_.size(), "pool_int64s duplicate ", std::to_string(ngram_size), "-grams detected");
+        } else {
+          auto before_insert = impl_->str_set_.size();
+          Emplace(impl_->pool_strings_.begin() + start_idx, ngrams, ngram_size, ngram_id, impl_->str_set_);
+          ONNXRUNTIME_ENFORCE((before_insert + ngrams) == impl_->str_set_.size(), "poll_strings duplicate ", std::to_string(ngram_size), "-grams detected");
+        }
       } else {
-        auto before_insert = impl_->str_set_.size();
-        Emplace(impl_->pool_strings_.begin() + start_idx, ngrams, ngram_size, ngram_id, impl_->str_set_);
-        ONNXRUNTIME_ENFORCE((before_insert + ngrams) == impl_->str_set_.size(), "poll_strings duplicate ", std::to_string(ngram_size), "-grams detected");
+        ngram_id += ngrams;
       }
     }
     ++ngram_size;
-  }
-  if (impl_->pool_strings_.empty()) {
-    ONNXRUNTIME_ENFORCE(impl_->int_set_.size() == impl_->ngram_indexes_.size(),
-                        "n-grams in the pool does not match ngram_indexes size");
-  } else {
-    ONNXRUNTIME_ENFORCE(impl_->pool_strings_.size() == impl_->ngram_indexes_.size(),
-                        "n-grams in the pool does not match ngram_indexes size");
   }
 }
 
@@ -399,7 +385,7 @@ void Ngram::ComputeImpl(OpKernelContext* ctx, size_t total_items) const {
   auto const set_end = impl.PoolEnd<T>();
   // Frequency holder, init all to zero
   std::vector<uint32_t> frequencies;
-  frequencies.resize(impl.GetPoolSize<T>(), 0);
+  frequencies.resize(impl.ngram_indexes_.size(), 0);
 
   const auto N = impl.N_;
   const auto S = impl.S_ + 1;  // Convert to distance
@@ -442,9 +428,6 @@ void Ngram::ComputeImpl(OpKernelContext* ctx, size_t total_items) const {
             sample.AddItem(*ngram_item);
             ngram_item += si;
           }
-          //#ifdef _DEBUG
-          //        sample.DebugPrint();
-          //#endif
           auto hit = impl.Find<T>(sample);
           if (hit != set_end) {
             // record frequency
