@@ -193,6 +193,7 @@ struct Ngram::Impl {
   std::vector<std::string> pool_strings_;
   StringPoolSet str_set_;
   IntegerPoolSet int_set_;
+  size_t output_size_ = 0;
 
   MLDataType int32_dt_;
   MLDataType int64_dt_;
@@ -280,6 +281,15 @@ Ngram::Ngram(const OpKernelInfo& info) : OpKernel(info), impl_(new Impl) {
 
   status = info.GetAttrs("ngram_indexes", impl_->ngram_indexes_);
   ONNXRUNTIME_ENFORCE(status.IsOK() && !impl_->ngram_indexes_.empty(), "Non-empty ngram_indexes is required");
+  {
+    // Check that all are positive
+    ONNXRUNTIME_ENFORCE(std::all_of(impl_->ngram_indexes_.cbegin(), impl_->ngram_indexes_.cend(),
+                                    [](int64_t i) { return i >= 0; }),
+                        "Negative ngram_indexes values are not allowed");
+    // Set output size to max output index + 1;
+    auto greatest_hit = std::max_element(impl_->ngram_indexes_.cbegin(), impl_->ngram_indexes_.cend());
+    impl_->output_size_ = *greatest_hit + 1;
+  }
 
   status = info.GetAttrs("weights", impl_->weights_);
   if (status.IsOK()) {
@@ -385,7 +395,7 @@ void Ngram::ComputeImpl(OpKernelContext* ctx, size_t total_items) const {
   auto const set_end = impl.PoolEnd<T>();
   // Frequency holder, init all to zero
   std::vector<uint32_t> frequencies;
-  frequencies.resize(impl.ngram_indexes_.size(), 0);
+  frequencies.resize(impl.output_size_, 0);
 
   const auto N = impl.N_;
   const auto S = impl.S_ + 1;  // Convert to distance
